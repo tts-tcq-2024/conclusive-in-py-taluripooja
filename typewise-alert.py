@@ -1,50 +1,40 @@
-import unittest
-from unittest.mock import patch
-import typewise_alert
+DEFAULT_LIMITS = (0, 0)  # Default temperature limits
 
-class TypewiseAlertTest(unittest.TestCase):
-    
-    def test_infer_breach(self):
-        cases = [
-            (20, 50, 100, 'TOO_LOW'),
-            (110, 50, 100, 'TOO_HIGH'),
-            (75, 50, 100, 'NORMAL')
-        ]
-        for value, lower_limit, upper_limit, expected in cases:
-            with self.subTest(value=value, lower_limit=lower_limit, upper_limit=upper_limit):
-                self.assertEqual(typewise_alert.infer_breach(value, lower_limit, upper_limit), expected)
+def infer_breach(value, lower_limit, upper_limit):
+    if value < lower_limit:
+        return 'TOO_LOW'
+    elif value > upper_limit:
+        return 'TOO_HIGH'
+    return 'NORMAL'
 
-    def test_get_temperature_limits(self):
-        cases = [
-            ('PASSIVE_COOLING', (0, 35)),
-            ('HI_ACTIVE_COOLING', (0, 45)),
-            ('MED_ACTIVE_COOLING', (0, 40)),
-            ('UNKNOWN_COOLING', (0, 0))
-        ]
-        for cooling_type, expected_limits in cases:
-            with self.subTest(cooling_type=cooling_type):
-                self.assertEqual(typewise_alert.get_temperature_limits(cooling_type), expected_limits)
+def get_temperature_limits(cooling_type):
+    limits = {
+        'PASSIVE_COOLING': (0, 35),
+        'HI_ACTIVE_COOLING': (0, 45),
+        'MED_ACTIVE_COOLING': (0, 40)
+    }
+    return limits.get(cooling_type, DEFAULT_LIMITS)
 
-    def test_classify_temperature_breach(self):
-        cases = [
-            ('PASSIVE_COOLING', 20, 'NORMAL'),
-            ('PASSIVE_COOLING', 36, 'TOO_HIGH'),
-            ('HI_ACTIVE_COOLING', 46, 'TOO_HIGH'),
-            ('MED_ACTIVE_COOLING', 39, 'NORMAL')
-        ]
-        for cooling_type, temperature, expected_breach in cases:
-            with self.subTest(cooling_type=cooling_type, temperature=temperature):
-                self.assertEqual(typewise_alert.classify_temperature_breach(cooling_type, temperature), expected_breach)
+def classify_temperature_breach(cooling_type, temperature_in_c):
+    lower_limit, upper_limit = get_temperature_limits(cooling_type)
+    return infer_breach(temperature_in_c, lower_limit, upper_limit)
 
-    @patch('typewise_alert.send_to_controller')
-    def test_alert_to_controller(self, mock_send):
-        typewise_alert.check_and_alert('TO_CONTROLLER', {'coolingType': 'PASSIVE_COOLING'}, 20)
-        mock_send.assert_called_once_with('NORMAL')
+def check_and_alert(alert_target, battery_char, temperature_in_c):
+    breach_type = classify_temperature_breach(battery_char['coolingType'], temperature_in_c)
+    if alert_target == 'TO_CONTROLLER':
+        send_to_controller(breach_type)
+    elif alert_target == 'TO_EMAIL':
+        send_to_email(breach_type)
 
-    @patch('typewise_alert.send_to_email')
-    def test_alert_to_email(self, mock_send):
-        typewise_alert.check_and_alert('TO_EMAIL', {'coolingType': 'PASSIVE_COOLING'}, 36)
-        mock_send.assert_called_once_with('TOO_HIGH')
+def send_to_controller(breach_type):
+    header = 0xfeed
+    print(f'{header}, {breach_type}')
 
-if __name__ == '__main__':
-    unittest.main()
+def send_to_email(breach_type):
+    recipient = "a.b@c.com"
+    messages = {
+        'TOO_LOW': "Hi, the temperature is too low",
+        'TOO_HIGH': "Hi, the temperature is too high"
+    }
+    if breach_type in messages:
+        print(f'To: {recipient}\n{messages[breach_type]}')
